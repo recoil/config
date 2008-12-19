@@ -1,0 +1,19 @@
+! Japanese language stuff, to make Japanese text entry work
+!*.inputMethod: kinput2
+!*.preeditType: OverTheSpot
+!Kinput2*userOverrideShellForMode: true
+!Kinput2*conversionStartKeys: Shift<Key>space
+
+! Configure kterm properly
+! Kterm*VT100*KanjiMode: euc
+
+! Rxvt config, alter various lamenesses
+!Rxvt.multichar_encoding: eucj
+!Rxvt.saveLines: 4096
+! Rxvt.backspacekey: ^?
+
+! Make the emacs menubar a bit prettier
+emacs.pane.menubar.font: -adobe-helvetica-medium-r-normal--12-120-75-75-p-67-iso8859-1
+emacs.pane.menubar.height: 24
+emacs.pane.menubar.margin: 0
+emacs*bitmapIcon: on
