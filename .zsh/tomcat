@@ -1,0 +1,34 @@
+# Tomcat-related functions
+check_tomcat_home () {
+    if [[ -z "$TOMCAT_HOME" ]]; then
+        echo "You must set the TOMCAT_HOME environment variable" >&2
+        return -1
+    fi
+
+    return 0
+}
+ 
+shutdown_tomcat () {
+    check_tomcat_home || return -1
+    cd $TOMCAT_HOME
+    bin/shutdown.sh
+    cd -
+}
+
+startup_tomcat () {
+    check_tomcat_home || return -1
+    cd $TOMCAT_HOME
+    bin/startup.sh
+    cd -
+}
+
+restart_tomcat () {
+    check_tomcat_home || return -1
+    shutdown_tomcat
+    sleep 2
+    startup_tomcat
+}
+
+alias rt=restart_tomcat
+alias st=shutdown_tomcat
+alias ut=startup_tomcat

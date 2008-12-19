@@ -1,0 +1,11 @@
+# CVS related - This is pretty horrible for now, but it's a start
+quickstat () {
+    if [[ -n "$1" && "-m" = "$1" ]]; then
+        cvs status 2>|/dev/null | grep '^File' | grep 'Modified'
+    elif [[ -n "$1" && "-u" = "$1" ]]; then
+        cvs status 2>|/dev/null | grep '^File' | grep -v "Up-to-date"
+    else
+        cvs status 2>|/dev/null | grep '^File'
+    fi
+}
+x

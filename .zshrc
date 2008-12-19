@@ -26,7 +26,7 @@ if [[ $ZSH_VERSION == 3.1.<6->* ||
       $ZSH_VERSION == 3.2.<->*  ||
       $ZSH_VERSION == 4.<->* ]]
 then
-  ZSH_VERSION_TYPE=new
+    ZSH_VERSION_TYPE=new
 fi
 
 ## Options
@@ -128,7 +128,7 @@ if [[ "$TERM" != "dumb" ]]; then
 fi
 
 if [[ $ZSH_VERSION_TYPE == 'new' ]]; then
-  setopt \
+    setopt \
         hist_expire_dups_first \
         hist_ignore_all_dups \
      NO_hist_no_functions \
@@ -139,7 +139,7 @@ if [[ $ZSH_VERSION_TYPE == 'new' ]]; then
 fi
 
 if [[ $ZSH_VERSION == 3.0.<6->* || $ZSH_VERSION_TYPE == 'new' ]]; then
-  setopt \
+    setopt \
         hist_reduce_blanks
 fi
 
@@ -170,29 +170,6 @@ WATCHFMT="%n has %a %l from %M"
 
 ## Prompts
 
-#local _find_promptinit
-#_find_promptinit=( $^fpath/promptinit(N) )
-#if (( $#_find_promptinit == 1 )) && [[ -r $_find_promptinit[1] ]]; then
-#  zshrc_load_status 'prompt system'
-#
-#  autoload -U promptinit
-#  promptinit
-#
-#  PS4="trace %N:%i> "
-#  #RPS1="$bold_colour$bg_red              $reset_colour"
-#
-#  # Default prompt style
-#  if [[ -r /proc/$PPID/cmdline ]] && egrep -q 'Eterm|nexus|vga' /proc/$PPID/cmdline; then
-#    # probably OK for fancy graphic prompt
-#    prompt adam2
-#  else
-#    prompt adam2 plain
-#  fi
-#else
-#  PS1='%n@%m %B%3~%b %# '
-#fi
-#
-
 ## Load the prompt stuff
 if [[ "$TERM" != "dumb" ]]; then
     autoload -U promptinit
@@ -211,15 +188,15 @@ zshrc_load_status 'completion system'
 bindkey -e
 
 if [[ "$ZSH_VERSION_TYPE" == 'new' ]]; then
-  autoload -U compinit
-  compinit -u # don't perform security check
+    autoload -U compinit
+    compinit -u # don't perform security check
 else 
-  print "No advanced completion stuff"
-  function zstyle { }
-  function compdef { }
+    print "No advanced completion stuff"
+    function zstyle { }
+    function compdef { }
 
-  # an antiquated, barebones completion system is better than nowt
-  zmodload zsh/compctl
+    # an antiquated, barebones completion system is better than nowt
+    zmodload zsh/compctl
 fi
 
 ## Enable the way cool bells and whistles.
@@ -238,11 +215,6 @@ zstyle ':completion::complete:*' cache-path ~/.zsh/cache/$HOST
 zstyle ':completion:*' expand 'yes'
 zstyle ':completion:*' squeeze-slashes 'yes'
 
-# Include non-hidden directories in globbed file completions
-# for certain commands
-#zstyle ':completion::complete:*' \
-#  tag-order 'globbed-files directories' all-files
-#zstyle ':completion::complete:*:tar:directories' file-patterns '*~.*(-/)'
 # Separate matches into groups
 zstyle ':completion:*:matches' group 'yes'
 
@@ -261,18 +233,9 @@ zstyle ':completion:*:options' auto-description '%d'
 zstyle ':completion:*:history-words' stop verbose
 zstyle ':completion:*:history-words' remove-all-dups yes
 
-## Common usernames
-# users=( tom dick harry )
-
-my_accounts=(
-)
-
 
 zshrc_load_status 'aliases and functions'
 
-bash () {
-  NO_ZSH="yes" command bash "$@"
-}
 
 restart () {
   exec $SHELL "$@"
@@ -280,15 +243,15 @@ restart () {
 
 ## Reloading .zshrc or functions
 reload () {
-  if [[ "$#*" -eq 0 ]]; then
-    . ~/.zshrc
-  else
-    local fn
-    for fn in "$@"; do
-      unfunction $fn
-      autoload -U $fn
-    done
-  fi
+    if [[ "$#*" -eq 0 ]]; then
+        . ~/.zshrc
+    else
+        local fn
+        for fn in "$@"; do
+            unfunction $fn
+            autoload -U $fn
+        done
+    fi
 }
 compdef _functions reload
 
@@ -419,53 +382,6 @@ waitfile () {
     done
 }
 
-# CVS related - This is pretty horrible for now, but it's a start
-quickstat () {
-    if [[ -n "$1" && "-m" = "$1" ]]; then
-        cvs status 2>|/dev/null | grep '^File' | grep 'Modified'
-    elif [[ -n "$1" && "-u" = "$1" ]]; then
-        cvs status 2>|/dev/null | grep '^File' | grep -v "Up-to-date"
-    else
-        cvs status 2>|/dev/null | grep '^File'
-    fi
-}
-
-# Tomcat-related functions
-check_tomcat_home () {
-    if [[ -z "$TOMCAT_HOME" ]]; then
-        echo "You must set the TOMCAT_HOME environment variable" >&2
-        return -1
-    fi
-
-    return 0
-}
- 
-shutdown_tomcat () {
-    check_tomcat_home || return -1
-    cd $TOMCAT_HOME
-    bin/shutdown.sh
-    cd -
-}
-
-startup_tomcat () {
-    check_tomcat_home || return -1
-    cd $TOMCAT_HOME
-    bin/startup.sh
-    cd -
-}
-
-restart_tomcat () {
-    check_tomcat_home || return -1
-    shutdown_tomcat
-    sleep 2
-    startup_tomcat
-}
-
-alias rt=restart_tomcat
-alias st=shutdown_tomcat
-alias ut=startup_tomcat
-
-
 # Some simple functions
 psg () { 
   ps aux | grep $1 | more
@@ -480,54 +396,32 @@ fbig () {
   ls -alFR $* | sort -rn -k5 | less -r
 }
 
-# fbigrpms (no idea what this does!)
-alias fbigrpms='rpm --qf "%{SIZE}\t%{NAME}\n" -qa | sort -n | less'
-
 ## Job/process control
 alias j='jobs -l'
 alias mps='ps -o user,pcpu,command'
-pst () {
-  pstree -p $* | less -S
-}
-alias gps='gitps -p afx; cx'
+
 alias ra='ps auxww | grep -vE "(^($USER|nobody|root|bin))|login"'
 rj () {
-  ps auxww | grep -E "($*|^USER)"
+    ps auxww | grep -E "($*|^USER)"
 }
 ru () {
-  ps auxww | grep -E "^($*|USER)" | grep -vE "^$USER|login"
+    ps auxww | grep -E "^($*|USER)" | grep -vE "^$USER|login"
 }
 compdef _users ru
-
-## Changing terminal type
-alias v1='export TERM=vt100'
-alias v2='export TERM=vt220'
-alias vx='export TERM=xterm-color'
-
-
-alias f=finger
-
-# su to root and change window title
-alias root='echo -n "\e]0;root@${HOST}\a"; su -; cx'
 
 # No spelling correction for the man command
 alias man='nocorrect man'
 
-# Make sure to run ocaml with rlwrap
-if which rlwrap >&/dev/null; then
-  alias ocaml='rlwrap ocaml'
-  alias scala='rlwrap scala'
-fi
-
 ## Set up the appropriate ftp program
 if which lftp >&/dev/null; then
-  alias ftp=lftp
+    alias ftp=lftp
 elif which ncftp >&/dev/null; then
-  alias ftp=ncftp
+    alias ftp=ncftp
 fi
 
 ## Key bindings
 zshrc_load_status 'key bindings'
+
 bindkey -s '^X^Z' '%-^M'
 bindkey '^[e' expand-cmd-path
 bindkey -s '^X?' '\eb=\ef\C-x*'
@@ -547,40 +441,29 @@ bindkey -s '^[[Z' '\t'
 
 zshrc_load_status 'miscellaneous'
 
-## Hash named directories
-hash -d I3=/usr/src/redhat/RPMS/i386
-hash -d I6=/usr/src/redhat/RPMS/i686
-hash -d SR=/usr/src/redhat/SRPMS
-hash -d SP=/usr/src/redhat/SPECS
-hash -d SO=/usr/src/redhat/SOURCES
-hash -d BU=/usr/src/redhat/BUILD
-
 ## ls colours
 
 if [[ $ZSH_VERSION > 3.1.5 ]]; then
-  zmodload -i zsh/complist
+    zmodload -i zsh/complist
 
-  zstyle ':completion:*' list-colors ''
-  zstyle ':completion:*:*:kill:*:processes' list-colors \
-    '=(#b) #([0-9]#)*=0=01;31'
+    zstyle ':completion:*' list-colors ''
+    zstyle ':completion:*:*:kill:*:processes' list-colors \
+        '=(#b) #([0-9]#)*=0=01;31'
 
-  ZLS_COLOURS=${LS_COLORS-${LS_COLOURS-''}}
+    ZLS_COLOURS=${LS_COLORS-${LS_COLOURS-''}}
 fi  
 
 ## Specific to hosts
 if [[ -r ~/.zshrc.local ]]; then
-  zshrc_load_status '.zshrc.local'
-  . ~/.zshrc.local
+    zshrc_load_status '.zshrc.local'
+    . ~/.zshrc.local
 fi
 
 # Run host-specific .zshrc files
 if [[ -r ~/.zshrc.${HOST%%.*} ]]; then
-  zshrc_load_status ".zshrc.${HOST%%.*}"
-  . ~/.zshrc.${HOST%%.*}
+    zshrc_load_status ".zshrc.${HOST%%.*}"
+    . ~/.zshrc.${HOST%%.*}
 fi
-
-## Ensure that we're using sensible shell key bindings
-bindkey -e
 
 ## Clear up after status display
 echo -n "\r"
