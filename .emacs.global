@@ -1,0 +1,801 @@
+;; -*- emacs-lisp -*-
+
+;; Bring in all sorts of libraries before compiling this file.
+(eval-when-compile 
+  (require 'newcomment)
+  (require 'mmm-mode)
+;;  (require 'slime)
+  (require 'css-mode)
+  (require 'dired)
+  (require 'ruby-mode nil 'noerror)
+  (require 'iswitchb)
+  ;(require 'w3m)
+)
+
+;;;; Functions and Macros written by me
+
+(defun mhj-vi-copy (&optional lines)
+  "Yank (copy) the specified number of lines."
+  (interactive "p")
+  (save-excursion
+    (setq lines (if (or (null lines)
+                        (< lines 1)) 1 lines))
+    (beginning-of-line)
+    (push-mark (point) nil t)
+    (forward-line lines)
+    (kill-ring-save (mark) (point))))
+
+(defun mhj-open-line-below (count)
+  "Emulate the vi `o' command, since I prefer this behaviour most of the time."
+  (interactive "p")
+  (end-of-line)
+  (open-line count)
+  (forward-line count)
+  (unless (eq major-mode 'text-mode)
+    (indent-according-to-mode)))
+
+(defun mhj-open-line-above (count)
+  "Equivalent of shift-o in vi (the opposite of open-line)."
+  (interactive "p")
+  (beginning-of-line)
+  (open-line count)
+  (unless (eq major-mode 'text-mode)
+    (indent-according-to-mode)))
+
+(defun mhj-insert-line-below (count)
+  "Like the original open-line in emacs, but doesn't split lines."
+  (interactive "p")
+  (end-of-line)  
+  (open-line count))
+
+(defun mhj-indent-whole-buffer ()
+  "Apply indentation to whole buffer."
+  (interactive)
+  (indent-region (point-min) (point-max) nil))
+
+(defun mhj-bury-and-close-buffer ()
+  "Hide the current buffer and remove the current window if there is more
+than one such thing"
+  (interactive)
+  (bury-buffer)
+  (when (> (length (window-list)) 1)
+    (delete-window)))
+
+(defun mhj-swap-windows ()
+  "Re-order the windows so that whichever was first now comes second and
+vice versa (useful when you get mixed up)"
+  (interactive)
+  (let ((current (buffer-name (current-buffer))))
+    (other-window 1)
+    (let ((other (buffer-name (current-buffer))))
+      (switch-to-buffer current)
+      (other-window 1)
+      (switch-to-buffer other))))
+
+(defun mhj-kill-whole-line (&optional lines)
+  "Kill the entire line (or lines, if a prefix argument is specified),
+like the dd command in vi."
+  (interactive "p")
+  (setq lines (if (or (null lines)
+                      (< lines 1)) 1 lines))
+  (while (> lines 0)
+    (beginning-of-line)
+    (unless (looking-at "^[ \\t]*$") ; If the current line is blank, don't kill it twice!
+      (kill-line))
+    (kill-line)
+    (setq lines (1- lines))))
+
+(defun mhj-zap-to-char (arg char)
+  "Kill up to, but *not* including the ARG'th occurrence of CHAR."
+  (interactive "p\ncZap to char: ")
+  (kill-region (point) (progn
+                         (search-forward (char-to-string char) nil nil arg)
+                         (- (point) 1)))
+  (backward-char))
+
+(defun mhj-lisp-zap-to-char (arg)
+  "Special zapping behaviour for lisp programming.  Zap to the next
+opening or closing paren, whichever comes first."
+  (interactive "p")
+  (save-excursion
+    (let ((start (point))
+          (first-open (search-forward "(" nil 'noerror)))
+      (goto-char start)
+      (let ((first-close (search-forward ")" nil 'noerror)))
+        (goto-char start)
+        (if (< first-open first-close)
+            (mhj-zap-to-char arg ?\()
+          (mhj-zap-to-char arg ?\)))))))
+
+(defun mhj-save-as-script ()
+  "Hook to make files that begin with #! automatically executable when
+we save them.  Don't try to do this if the file is loaded with tramp."
+  (and (save-excursion
+         (save-restriction
+           (widen)
+           (goto-char (point-min))
+           (save-match-data
+             (looking-at "^#!"))))
+       (if (not (and (boundp 'tramp-file-name-regexp)
+                     (string-match tramp-file-name-regexp buffer-file-name)))
+           (shell-command (concat "chmod u+x " buffer-file-name)))
+       (message (concat "Saved as script: " buffer-file-name))))
+
+(add-hook 'after-save-hook 'mhj-save-as-script)
+
+(defun mhj-which-func-cleanup (name)
+  "which-func-cleanup function for Perl that removes all the package
+delimiters."
+  (if (and (or (eq major-mode 'cperl-mode)
+               (eq major-mode 'perl-mode))
+           (string-match "::" name))
+      (car (last (split-string name "::")))
+      name))
+
+(setq which-func-cleanup-function 'mhj-which-func-cleanup)
+
+;; TODO - Create a binding for this.
+(defun mhj-select-word-at-point ()
+  "Selects the word at point, in its entirety, regardless of where the
+point is in the word to start off with"
+  (interactive)
+  (let ((bounds (bounds-of-thing-at-point 'word)))
+    (goto-char (car bounds))
+    (push-mark (point) t t)
+    (goto-char (cdr bounds))))
+
+
+;; FIXME - Change this to use defun instead of lambda so that
+;; the help looks nicer.
+;; Redefine the case-related commands to work on regions as well.
+(defmacro mhj-redefine-case-command (case-op binding)
+  (let ((case-op-word (intern (concat case-op "-word")))
+        (case-op-region (intern (concat case-op "-region")))
+        (case-op-both (intern (concat case-op "-both"))))
+    `(progn 
+       (defun ,case-op-both (n)
+         ,(format "If the region is active then call `%s',
+and move to the end of the region.
+
+If the region is not active, call `%s'.  See the documentation for those
+functions for more information." case-op-region case-op-word)
+         (interactive "p")
+         (if (not mark-active)
+             (,case-op-word n)
+           (progn
+             (,case-op-region (region-beginning) (region-end))
+             (goto-char (region-end)))))
+       (define-key global-map ,binding ',case-op-both))))
+
+(mhj-redefine-case-command "downcase" [(meta l)])
+(mhj-redefine-case-command "upcase" [(meta u)])
+(mhj-redefine-case-command "capitalize" [(meta c)])
+
+(defun mhj-comment-uncommented-lines ()
+  "Comment any lines that aren't already commented."
+  (interactive)
+  (save-excursion
+    (when (and mark-active transient-mark-mode)
+      (let ((end-line (count-lines 1 (region-end))))
+        (goto-char (region-beginning))
+        (beginning-of-line)
+        (while (< (count-lines 1 (point)) end-line)
+          (unless (looking-at (concat (regexp-quote comment-start)))
+            (insert (comment-padright comment-start comment-add))
+            (when comment-end
+              (end-of-line)
+              (insert comment-end)))
+          (forward-line 1)
+          (beginning-of-line))))))
+
+(defadvice comment-region (after mhj-comment-blank-lines)
+  (mhj-comment-uncommented-lines))
+
+(ad-activate 'comment-region)
+
+(defun mhj-process-running (process-name)
+  "Function that calls out to the `ps' command to determine whether a
+process named process-name is running"
+  (with-temp-buffer
+    (call-process "ps" nil (current-buffer) nil (concat "-u" (getenv "USER")))
+    (goto-char (point-min))
+    ;; don't really know whether i want to keep the $ or not
+    (not (eq (re-search-forward (concat process-name "$") nil t) nil))))
+
+(defun mhj-format-xml ()
+  "Put newlines after the beginning and end of every tag, unless 
+the tag contained some text, then indent the whole lot so that
+it looks nicer."
+  (interactive)
+  (let ((begin (point))
+        (end (point-max)))
+    (when mark-active
+      (setq begin (region-beginning)
+            end (region-end)))
+    (save-excursion
+      (goto-char begin)
+      (while (< (point) end)
+        (search-forward ">" end 'noerror)
+        (let ((prev-is-newline (skip-chars-forward "\n")))
+          (skip-chars-forward " 	")
+          (if (and (looking-at "<") 
+                   (= prev-is-newline 0))
+              (progn 
+                (newline)
+                (setq end (1+ end))))))
+      (indent-region begin end nil))))
+
+(defun mhj-scratch-buffer ()
+  "Create a new scratch buffer that looks like the normal one, in case
+it was accidentally killed, or just to switch to the existing one
+otherwise."
+  (interactive)
+  (let ((buffer (get-buffer "*scratch*")))
+    (unless buffer
+      (setq buffer (get-buffer-create "*scratch*")))
+    (with-current-buffer buffer
+      (lisp-interaction-mode)
+      (when (< (buffer-size) 1)
+          (insert initial-scratch-message)
+          (message "Inserting buffer contents...")))
+    (switch-to-buffer buffer)))
+
+(defun mhj-number-list ()
+  "Little function that puts a number before every item in a highlighted list."
+  (interactive)
+  (let* ((begin (region-beginning))
+         (last-line (line-number-at-pos (region-end)))
+         (count 0))
+    (save-excursion
+      (goto-char begin)
+      (while (< (+ (line-number-at-pos begin) count) (1+ last-line))
+        (when (re-search-forward "^.+")
+          (setq count (1+ count))
+          (beginning-of-line)
+          (insert (concat (number-to-string count) ". "))
+          (forward-line 1))))))
+
+(defun mhj-renumber-list ()
+  "Very simple re-numbering function for lists created using the above function."
+  (interactive)
+  (save-excursion
+    (forward-line 1)
+    (while (re-search-forward "^\\([0-9]+\\)\\." nil t)
+      (let ((match (string-to-number (match-string 1))))
+        (replace-match (concat (number-to-string (1+ match)) ".") nil nil)))))
+
+(defun mhj-convert-buffer-to-sql-list ()
+  "This function converts a file containing a newline-separated
+list of strings into a form suitable for use in a SQL 'WHERE foo
+IN <list>' statement."
+  (interactive)
+  (goto-char (point-min))
+  (delete-horizontal-space)
+  (while (looking-at "\n")
+    (delete-char 1))
+  (insert-char ?\( 1)
+  (while (looking-at "[[:alnum:]]")
+    (insert-char ?\' 1)
+    (end-of-line)
+    (delete-horizontal-space)
+    (insert-char ?\' 1)
+    (while (looking-at "\n")
+      (delete-char 1))
+    (unless (= (point) (point-max))
+      (insert-char ?\, 1)))
+  (insert-char ?\) 1))
+
+;;;; Some functions stolen from adam
+
+;; Adam's extension to iswitchb
+(defun iswitchb-bury-buffer ()
+  "Bury the buffer at the head of `iswitchb-matches'."
+  (interactive)
+  (let ((enable-recursive-minibuffers t) buf)
+    (setq buf (car iswitchb-matches))
+    (when buf
+      (bury-buffer buf)
+      (iswitchb-next-match)
+      (setq iswitchb-rescan t))))
+
+(defun as-destroy-buffer ()
+  "Kill the current buffer without leaving crappy auto-save files around."
+  (interactive)
+  (let ((tmpfile (format "/tmp/.emacs.as-destroy-buffer.%d" (emacs-pid)))
+        (buf (buffer-name)))
+    (write-file tmpfile)
+    (kill-buffer nil)
+    (delete-file tmpfile)
+    (message (concat "Destroyed buffer " buf))))
+
+(defun as-join-line-with-next (&optional preserve-comment)
+  "Joins the current line with the next.  Removes any continuation
+backslash from the end of the line, and any comment prefix from the
+beginning of the next (unless a prefix argument is given) before
+joining."
+  (interactive "*P")
+  (save-excursion
+    (end-of-line)
+    (forward-char -1)
+    (and (looking-at "\\\\") (delete-char 1))
+    (message (format "preserve-comment is %s" preserve-comment))
+    (unless (or preserve-comment (not comment-start))
+      (save-excursion
+        (forward-line 1)
+        (let ((beg (point)))
+          (forward-line 1)
+          (uncomment-region beg (point)))))
+    (join-line 1)))
+
+(defun as-snip-region ()
+  "Replaces a region with `[snipped]' text, ensuring one blank
+line before and after the text."
+  (interactive)
+  (kill-region (region-beginning) (region-end))
+  (insert "\n[snipped]\n")
+  (if (re-search-forward "\n*" nil t)
+      (replace-match "\n" nil nil))
+  (re-search-backward "\\[snipped\\]" nil t)
+  (re-search-backward "[^\n]" nil t)
+  (forward-char 1)
+  (if (re-search-forward "\n*" nil t)
+      (replace-match "\n\n" nil nil))
+  (re-search-forward "\\[snipped\\]\n\n" nil t))
+
+(defun as-rename-current-buffer-file (new-file-name)
+  "Renames the file in the current buffer, and renames the buffer accordingly.
+
+Wraps around `rename-file'."
+  (interactive
+   (let ((cur-buf-fn
+          (or (buffer-file-name)
+              (error "Current buffer does not have a filename"))))
+     (list ;; interactive expects a list matching the defun arglist
+      (expand-file-name
+       (read-file-name
+        (format "Rename %s to: " cur-buf-fn) ;; prompt
+
+        ;; Directory to complete in.  We use a nasty trick here and
+        ;; include the whole original filename - seems not to matter
+        ;; that it's not a directory.
+        cur-buf-fn
+
+        ;; Default filename
+        cur-buf-fn
+        
+        ;; Do not require input to be an existing file
+        nil
+        
+        ;; No initial input needed because of above trick
+        nil)))))
+
+  ;; dired-rename-file will rename both the file and the buffer,
+  ;; handling buffer name uniquification for us.
+  ;;   (rename-file buffer-file-name new-file-name)
+  ;;   (rename-buffer new-file-name t)
+
+  ;; The nil below means "not ok if already exists" and gets passed to
+  ;; rename-file.
+  (dired-rename-file (buffer-file-name) new-file-name nil))
+
+;; Silly alias that I use when font locking goes all guff
+(defalias 'ffb 'font-lock-fontify-buffer)
+
+;;; Key bindings FIXME - Standardise on one way of doing these and
+;; stick to it!  And clean up the mess too.
+(global-set-key [?\M-/] 'hippie-expand             )
+(global-set-key [?\M-g] 'goto-line                 )
+(global-set-key [?\C-o] 'mhj-open-line-below       )
+(global-set-key [?\M-o] 'mhj-open-line-above       )
+(global-set-key [?\M-i] 'indent-relative           )
+(global-set-key [?\M-k] 'mhj-kill-whole-line       )
+(global-set-key [?\M-z] 'mhj-zap-to-char           )
+(global-set-key [?\C-c ?h] 'hide-lines             )
+(global-set-key [?\C-c ?i] 'show-all-invisible     )
+(global-set-key [?\C-c ?b] 'bury-buffer            )
+(global-set-key [?\C-c ?c] 'mhj-compile-init-files )
+(global-set-key [?\C-c ?g] 'goto-line              )
+(global-set-key [?\C-c ?y] 'mhj-vi-copy            )
+(global-set-key [?\C-c ?=] 'align                  )
+(global-set-key [?\C-c ?d] 'as-destroy-buffer      )
+(global-set-key [?\C-c ?k] 'as-snip-region         )
+(global-set-key [?\C-c ?u] 'cvs-update             )
+(global-set-key [?\C-c ?q] 'cvs-quickdir           )
+(global-set-key [?\C-c ?e] 'cvs-examine            )
+(global-set-key [?\C-c ?E] 'cvs-status             )
+(global-set-key [?\C-c ?s] 'mhj-scratch-buffer     )
+(global-set-key [?\C-c ?S] 'slime-selector         )
+(global-set-key [(meta s)] 'cvs-examine            )
+(global-set-key [?\C-x ?\C-b]   'bs-show           )
+(global-set-key [(control tab)] 'other-window      )
+(global-set-key [?\C-s]    'isearch-forward-regexp   ) ; swap these
+(global-set-key [?\C-\M-s] 'isearch-forward          ) ; two around
+(global-set-key [?\C-r]    'isearch-backward-regexp  ) ; swap these
+(global-set-key [?\C-\M-s] 'isearch-backward         ) ; two as well
+(global-set-key [?\C-c ?w] 'mhj-swap-windows         )
+(global-set-key [?\C-c ?f] 'font-lock-fontify-buffer )
+
+(global-set-key [(control meta z)] 'delete-other-windows  )
+(global-set-key [(control return)] 'open-line             )
+(global-set-key [(control meta m)] 'mhj-insert-line-below )
+(global-set-key [(meta return)]    'mhj-insert-line-below )
+(global-set-key [(control meta y)] 'as-join-line-with-next)
+
+
+;;;; Various options
+
+;; Window size nonsense
+(setq default-frame-alist
+      '((width . 100)
+        (height . 42)))
+
+;; TODO - Would be nice to parameterise this by window system somehow,
+;;        or make it table driven or something.
+(defun configure-window-system ()
+  (global-set-key [?\C-z] nil)
+  ;; Requires Emacs 21 or above.
+  (when (and (> emacs-major-version 20)
+             (or (equal window-system 'x) 
+                 (equal window-system 'mac)))
+    (tool-bar-mode -1))
+  ;; Requires Emacs 22 or above.
+  (when (and (> emacs-major-version 21))
+    (equal window-system 'x))
+  (setq mouse-autoselect-window t))
+
+;; Some miscellanous GNU Emacs options
+(cond ((or (not (boundp 'running-xemacs))
+           (string-match "GNU" (emacs-version)))
+       (transient-mark-mode t)
+       (global-font-lock-mode t)
+       (column-number-mode t)
+       (which-func-mode t)
+       (auto-compression-mode t)
+       (mouse-wheel-mode t)
+       (delete-selection-mode t)
+       (setq user-mail-address "mark@markhj.com")
+       (setq default-major-mode 'text-mode)
+       (setq show-trailing-whitespace t)
+       (setq sgml-warn-about-undefined-elements nil)
+       (setq sgml-warn-about-undefined-entities nil)
+       ;; Emacs 22-only stuff
+       (when (> emacs-major-version 21)
+         ;; Nifty new mode for switching buffers with C-x b, amongst other things.
+         (ido-mode 1))
+         ;; Older versions don't call it iswitchb-mode
+;;          (if (fboundp 'iswitchb-mode)
+;;              (iswitchb-mode)
+;;            (iswitchb-default-keybindings)))
+       ;; Only run the following if we're running in a window.
+       (cond (window-system
+              (configure-window-system))
+             (t (setq frame-background-mode 'dark)
+                (menu-bar-mode 0)))
+       (message "Not running GNU Emacs.  This probably isn't a good sign.")))
+
+;; Fix up hippie-expand to expand things in the right order.
+(setq hippie-expand-try-functions-list
+      '(try-expand-dabbrev
+        try-expand-dabbrev-all-buffers
+        try-expand-line
+        try-expand-line-all-buffers
+        try-complete-file-name-partially
+        try-complete-file-name
+        try-expand-list
+        try-expand-dabbrev-from-kill
+        try-complete-lisp-symbol-partially
+        try-complete-lisp-symbol
+        try-expand-all-abbrevs))
+
+;;;; Mode-specific things
+
+;;; Pre-load the mutt editing mode
+;; (require 'post nil 'noerror)
+;; Must be a reason that I had require, but since i don't use this atm, this seems an OK thing to do. (probably the alist config at the bottom of post.el)
+(autoload 'post-mode "post" "For mutt" t)
+
+;; Contains appropriate autoloads for nxml-mode
+(load "rng-auto.el" 'noerror)
+
+;;; Autoload a bunch of things
+(autoload 'cperl-mode   "cperl-mode"  "Alternate Perl editing mode."  t)
+(autoload 'inform-mode  "inform-mode" "Inform text adventures mode."  t)
+(autoload 'python-mode  "python-mode" "The Python editing mode"       t)
+(autoload 'ruby-mode    "ruby-mode"   "The Ruby editing mode"         t)
+(autoload 'hide-lines   "hide-lines"  "Hide lines matching a regexp"  t)
+(autoload 'css-mode     "css-mode"    "Editing mode for CSS files."   t)
+(autoload 'apache-mode  "apache-mode" "Apache config file edit mode." t)
+(autoload 'rnc-mode     "rnc-mode"    "Edit Relax-NG compact syntax"  t)
+(autoload 'ini-mode     "ini-mode"    "Edit INI files."               t)
+(autoload 'setnu-mode   "setnu-mode"  "Turn on line numbering"        t)
+;; (autoload 'w3m          "w3m"         "emacs-w3m web browser"         t)
+(autoload 'message-caesar-region "message" "rot13 a region"           t)
+(autoload 'html-helper-mode "html-helper-mode" "html helper mode"     t)
+(autoload 'tuareg-mode  "tuareg"      "Major mode for editing Caml code" t)
+(autoload 'camldebug    "camldebug"   "Run the Caml debugger"            t)
+(autoload 'js2-mode "js2-mode" "Major mode for editing Javascript files" t)
+
+;;; Setup file type associations
+(setq auto-mode-alist (append '(("\\.rb$"               . ruby-mode)
+                                ("\\.rake$"             . ruby-mode)
+                                ("\\.py$"               . python-mode)
+                                ("\\.lisp$"             . lisp-mode)
+                                ("\\.lsp$"              . lisp-mode)
+                                ("\\.cl$"               . lisp-mode)
+                                ("\\.jsp$"              . html-helper-mode)
+                                ("\\.css$"              . css-mode)
+                                ("\\.htacess$"          . apache-mode)
+                                ("httpd\\.conf$"        . apache-mode)
+                                ("\\.buf$"              . sql-mode)
+                                ("\\.rhtml$"            . html-helper-mode)
+                                ("/.zsh/functions/"     . sh-mode)
+                                ("/.zsh\\(env|rc\\)*"  . sh-mode)
+				("\\.xml$"              . nxml-mode)
+                                ("\\.xhtml$"            . nxml-mode)
+                                ("\\.xsl$"              . nxml-mode)
+                                ("\\.rnc$"              . rnc-mode)
+                                ("\\.ini$"              . ini-mode)
+                                ("\\.org$"              . org-mode)
+                                ("\\.ml\\w?$"           . tuareg-mode)
+                                ("\\.js$" . js2-mode)
+                                )
+			      auto-mode-alist))
+
+;;; Completely override the default, which messes up nXML-mode
+(setq magic-mode-alist '(("%![^V]" . ps-mode)
+                         ("# xmcd " . conf-unix-mode)
+                         ("<\\?xml " . nxml-mode)))
+
+(setq interpreter-mode-alist (append '(("ruby"   . ruby-mode)
+                                       ("clisp"  . lisp-mode)
+                                       ("python" . python-mode))
+                                     interpreter-mode-alist))
+
+(defalias 'perl-mode 'cperl-mode) 
+(defalias 'html-mode 'html-helper-mode)
+
+(defun mhj-init-erb-mmm-mode ()
+  "Initialise mmm-mode with ruby-mode for erb blocks and  make sure that everything is configured nicely."
+  (interactive)
+
+  (setq mmm-global-mode 'maybe)
+  (setq mmm-submode-decoration-level 2)
+  
+  (mmm-add-classes
+   '((erb-code
+      :submode ruby-mode
+      :match-face (("<%"  . mmm-code-submode-face)
+                   ("<%=" . mmm-output-submode-face)
+                   ("<%#" . mmm-comment-submode-face))
+      :front "<%[=#]?"
+      :back "%>"
+      :insert ((?% erb-code       nil @ "<%"  @ " " _ " " @ "%>" @)
+               (?# erb-comment    nil @ "<%#" @ " " _ " " @ "%>" @)
+               (?= erb-expression nil @ "<%=" @ " " _ " " @ "%>" @)))))
+
+  (set-face-background 'mmm-code-submode-face "gray15")
+  (set-face-background 'mmm-output-submode-face "gray20")
+  (set-face-background 'mmm-comment-submode-face "gray25"))
+
+;; Want to ensure that mmm-mode is all ready *before* the hooks
+;; are run.  For some reason, requiring it within the hook is 
+;; inadequate.
+(eval-after-load "html-helper-mode" 
+  '(progn
+     (require 'mmm-mode)
+     (add-to-list 'mmm-mode-ext-classes-alist '(html-helper-mode "\\.rhtml$" erb-code))))
+
+;; Hook for html-helper-mode
+(add-hook 'html-helper-mode-hook #'(lambda () 
+                                     (mhj-init-erb-mmm-mode)
+                                     (local-set-key [?\C-c ?b] 'mhj-w3m-browse-current-buffer)
+                                     (auto-fill-mode 0)))
+;; text mode
+(add-hook 'text-mode-hook #'(lambda () (auto-fill-mode 1)))
+(add-hook 'sgml-mode-hook #'(lambda () (auto-fill-mode 0)))
+
+;; CSS mode - set up indenting
+(add-hook 'css-mode-hook #'(lambda () 
+                             (setq cssm-indent-function #'cssm-c-style-indenter)
+                             (setq cssm-indent-level 4)))
+
+
+(defun mhj-set-q-to-close ()
+  "Quick and dirty function to rebind the q key"
+  (local-set-key "q" 'mhj-bury-and-close-buffer)
+  (local-set-key [?\M-q] 'mhj-bury-and-close-buffer))
+
+;; diff mode
+(add-hook 'diff-mode-hook #'mhj-set-q-to-close)
+;; cvs-status mode
+(add-hook 'cvs-status-mode-hook #'mhj-set-q-to-close)
+;; log-view mode
+(add-hook 'log-view-mode-hook #'mhj-set-q-to-close)
+
+;; bs mode
+(add-hook 'bs-mode-hook
+          #'(lambda () (local-set-key "\M->"
+                                      #'(lambda ()
+                                          (interactive)
+                                          (goto-char (point-max))
+                                          (beginning-of-line)))))
+;; Outline mode stuff
+;; (eval-after-load "outline" '(require 'foldout nil 'noerror))
+;; (add-hook 'outline-mode-hook
+;;           #'(lambda ()
+;;               ;; Quick navigation
+;;               (auto-fill-mode 1)
+;;               (local-set-key [(shift left)] 'foldout-exit-fold)
+;;               (local-set-key [(shift right)] 'foldout-zoom-subtree)))
+
+;; (add-hook 'outline-minor-mode-hook
+;;           #'(lambda ()
+;;               ;; Quick navigation
+;;               (auto-fill-mode 1)
+;;               (local-set-key [(shift left)] 'foldout-exit-fold)
+;;               (local-set-key [(shift right)] 'foldout-zoom-subtree)))
+;; 
+
+(defun as-iswitchb-keys ()
+  "Adam's keybindings for iswitchb."
+  (define-key iswitchb-mode-map "\C-z" 'iswitchb-bury-buffer))
+
+(add-hook 'iswitchb-define-mode-map-hook 'as-iswitchb-keys)
+
+;; Bind `I' in dired to show the file under the cursor as an info file.
+(add-hook 'dired-mode-hook
+          #'(lambda ()
+              (local-set-key "I" #'(lambda ()
+                                     (interactive)
+                                     (info (dired-get-filename))))))
+
+(add-hook 'dired-load-hook #'(lambda () (require 'dired-x)))
+
+(add-hook 'ruby-mode-hook #'(lambda () (setq ruby-indent-level 4)))
+
+;; Change the indentation of Java code to something a bit nicer.
+(add-hook 'java-mode-hook #'(lambda ()
+                              (c-set-offset 'arglist-cont-nonempty '+)
+                              (c-set-offset 'arglist-intro '+)
+                              (c-set-offset 'arglist-close 0)
+                              (c-set-offset 'substatement-open 0)
+                              (c-set-offset 'inline-open 0)))
+
+(add-hook 'nxml-mode-hook #'(lambda ()
+                              (local-set-key [?\C-c ?f] 'mhj-format-xml)))
+
+
+;; change the meaning of zap-to-char in elisp mode
+(add-hook 'emacs-lisp-mode-hook #'(lambda () (local-set-key [?\M-z] 'mhj-lisp-zap-to-char)))
+
+;; nice paren-highlighting for lisp modes.
+(require 'parenface)
+
+;; (require 'slime-autoloads)
+(add-hook 'lisp-mode-hook 
+          #'(lambda () 
+              (local-set-key [?\M-z] 'mhj-lisp-zap-to-char)
+              (make-local-variable lisp-indent-function)
+              (setq lisp-indent-function 'common-lisp-indent-function)
+              ;; Default to SBCL only when nothing else appears to have set it.
+;;               (when (or (not inferior-lisp-program)
+;;                         (equal "lisp" inferior-lisp-program))
+;;                 (setq inferior-lisp-program "/usr/local/bin/ccl64"))
+;;              (require 'slime)
+;;              (slime-setup '(slime-fancy slime-asdf slime-indent))
+;;               (setq slime-lisp-implementations
+;;                     '((clisp ("clisp") :coding-system utf-8-unix)
+;;                       (sbcl  ("sbcl")  :coding-system utf-8-unix)
+;;                       (ccl   ("ccl64") :coding-system utf-8-unix)))
+;;               (setq slime-default-lisp 'sbcl)
+;;               (slime-mode 1)
+              ))
+
+;;;; random extra stuff
+
+(defun special-form-p (sym)
+  "Returns true if the function named by SYM is a special form"
+  (let ((function (indirect-function sym)))
+    (and (subrp function)
+         (eq (cdr (subr-arity function)) 'unevalled))))
+
+
+;; Disable things that I really don't like
+(put 'overwrite-mode 'disabled t)
+(put 'suspend-emacs  'disabled t)
+
+
+;;; From here on out, this file could really use some refactoring, but
+;;; I just can't be bothered right now.
+
+(defun japanese ()
+  "Activate Japanese language input & language environment."
+  (interactive)
+  (set-language-environment "Japanese")
+  (set-input-method "japanese"))
+
+(defun english ()
+  "Reset language environment back to English, and remove any input
+methods that might be active."
+  (interactive)
+  (set-language-environment "English")
+  (and current-input-method
+       (toggle-input-method)))
+
+;; FIXME - This probably ought to just use the regular emacsclient server
+;; instead of gnuserv when gnuserv isn't available
+(eval-when-compile
+  (load "gnuserv-compat" 'noerror)
+  (load "gnuserv" 'noerror))
+(defun start-server ()
+  "Load and start gnuserv, if it's available."
+  (interactive)
+  (condition-case nil
+      (progn
+        (if (or (eq window-system 'x)
+                (eq window-system nil))
+            (load "gnuserv-compat"))
+        (load "gnuserv")
+        (gnuserv-start)
+        (message "Loaded gnuserv successfully"))
+    (file-error (message "Unable to load gnuserv"))))
+
+;; Enable dot-mode (Should probably put this elsewhere)
+(autoload 'dot-mode "dot-mode" nil t)
+
+;; (defun mhj-turn-on-dot-mode ()
+;;   "Turn on vi . command emulation mode."
+;;   (interactive)
+;;   (dot-mode 1)
+;;   (message "Dot mode activated."))
+;; 
+;; ;; Probably want to move this up with all the other bindings.
+;; (global-set-key [(control ?.)] 'mhj-turn-on-dot-mode)
+
+;; Never ring the bell!  Horrible thing.
+(setq ring-bell-function #'(lambda () nil))
+
+;; Set up emacs-w3m to be the default browser
+;; (autoload 'w3m-browse-url "w3m")
+(autoload 'browse-url-interactive-arg "browse-url" "Browse the prompted URL" t)
+
+;; (defun mhj-w3m-browse-url (url &optional new-session)
+;;   "Try to use emacs-w3m to browse a URL.  If this fails for any reason
+;; whatsoever, fall back on the built-in lynx support."
+;;   (interactive (browse-url-interactive-arg "URL: "))
+;;   (condition-case nil
+;;       (w3m-browse-url url new-session)
+;;     (error 
+;;      (browse-url-lynx-emacs url new-session))))
+
+;; (defun mhj-w3m-browse-current-buffer ()
+;;   "Open w3m on the current buffer, regardless of whether or not
+;; it has been saved."
+;;   (interactive)
+;;   (let ((filename (concat (make-temp-file "w3m-") ".html")))
+;;     (unwind-protect
+;;         (progn
+;;           (write-region (point-min) (point-max) filename)
+;;           (w3m-find-file filename))
+;;       (delete-file filename))))
+
+;; Don't set this if there's a non-X window system in place - on MacOS it's
+;; nicer to pop up Safari, for instance.
+;; (when (or (eq window-system 'x)
+;;           (not window-system))
+;;   (setq browse-url-browser-function 'mhj-w3m-browse-url))
+
+(defvar local-hyperspec-location  (homedir "/doc/HyperSpec")
+  "The location of the Common Lisp HyperSpec on the local disk.")
+
+;; Only point at a local hyperspec if the thing exists.
+(when (file-exists-p local-hyperspec-location)
+  (set-variable 'common-lisp-hyperspec-root 
+                (concat "file://" local-hyperspec-location "/")))
+
+
+;;; TODO List
+;; * Add the command that closes all open parens.
+;; * Split out a bit more nicely into lots of files.
+;; * Make bindings for delete-trailing-whitespace and/or fixup-whitespace.
+;; * Look into the whitespace library.
