@@ -1,0 +1,8 @@
+#autoload
+if [[ $# < 1 ]]; then
+    echo "Usage: $(basename $0) BINARY"
+    return 1 
+else
+    cd $(dirname $(which $1))
+fi
+

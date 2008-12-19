@@ -1,0 +1,12 @@
+# -*- mode: shell-script; -*-
+#autoload
+
+# Match only emacs lisp files, and don't error if there are none
+files=(*.el(N.))
+if [ -n $files ]; then
+    if [ -n "$1" -a "$1" = "-r" ]; then
+        emacs -L . --batch -f batch-byte-recompile-directory .
+    else
+        emacs -L . --batch -f batch-byte-compile $files
+    fi
+fi

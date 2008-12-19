@@ -1,0 +1,37 @@
+#autoload
+
+VM_LIST=$HOME/.jdk
+
+if [[ -z "$1" ]]; then
+    echo "Usage: $0 virtual_machine_name"
+    return 1
+fi
+
+# Need the zsh version of the stat command.
+zmodload -i zsh/stat
+
+local vm
+vm=$VM_LIST/$1
+if [[ ! -L $vm ]]; then
+    echo "Unable to find find virtual machine $1"
+    return 1
+fi
+
+local new_java_home
+new_java_home=$(stat +link $vm)
+
+    # sanity-check the new VM instead of blindly accepting it
+if [[ ! -r $new_java_home ]]; then
+    echo "VM link '$1' points to non-existent/unreadable location: $new_java_home"
+    return 1
+elif [[ ! -d $new_java_home ]]; then
+    echo "VM link '$1' points to non-directory: $new_java_home"
+    return 1
+fi
+
+export JAVA_HOME=$new_java_home
+export JDK_HOME=$new_java_home
+export PATH=$BASE_PATH:$LOCAL_PATH:$JAVA_HOME/bin
+echo JAVA_HOME is now $JAVA_HOME
+
+return 0

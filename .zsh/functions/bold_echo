@@ -1,0 +1,19 @@
+#autoload
+
+local args=""
+
+while [[ $# -gt 1 ]]; do
+    arg=$1
+    shift
+    if [ -z "${arg/-*}" ]; then
+        args="$args $arg"
+    fi
+done
+
+echo "Args are $args"
+
+if [ "$TERM" = "xterm" -o "$TERM" = "xterm-color" -o "$TERM" = "rxvt" ]; then
+    echo -e "${BOLD}$*${END}"
+else
+    echo $*
+fi
